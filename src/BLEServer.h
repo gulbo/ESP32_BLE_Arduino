@@ -74,6 +74,8 @@ public:
 	bool 			connect(BLEAddress address);
 	uint16_t		m_appId;
 	void			updateConnParams(esp_bd_addr_t remote_bda, uint16_t minInterval, uint16_t maxInterval, uint16_t latency, uint16_t timeout);
+	BLEAddress		getPeerAddress();
+	int   		    getRssi(); 
 
 	/* multi connection support */
 	std::map<uint16_t, conn_status_t> getPeerDevices(bool client);
@@ -95,17 +97,21 @@ private:
 	uint16_t			m_connId;
 	uint32_t            m_connectedCount;
 	uint16_t            m_gatts_if;
+	esp_bd_addr_t		m_client_addr;
   	std::map<uint16_t, conn_status_t> m_connectedServersMap;
 
 	FreeRTOS::Semaphore m_semaphoreRegisterAppEvt 	= FreeRTOS::Semaphore("RegisterAppEvt");
 	FreeRTOS::Semaphore m_semaphoreCreateEvt 		= FreeRTOS::Semaphore("CreateEvt");
 	FreeRTOS::Semaphore m_semaphoreOpenEvt   		= FreeRTOS::Semaphore("OpenEvt");
+	FreeRTOS::Semaphore m_semaphoreRssiCmplEvt      = FreeRTOS::Semaphore("RssiCmplEvt");
+
 	BLEServiceMap       m_serviceMap;
 	BLEServerCallbacks* m_pServerCallbacks = nullptr;
 
 	void            createApp(uint16_t appId);
 	uint16_t        getGattsIf();
 	void            handleGATTServerEvent(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
+	void            handleGAPEvent(esp_gap_ble_cb_event_t  event, esp_ble_gap_cb_param_t* param);
 	void            registerApp(uint16_t);
 }; // BLEServer
 

@@ -276,7 +276,11 @@ gatts_event_handler BLEDevice::m_customGattsHandler = nullptr;
 		BLEDevice::getScan()->handleGAPEvent(event, param);
 	}
 
-	if(m_bleAdvertising != nullptr) {
+	if (BLEDevice::m_pServer != nullptr) {
+		BLEDevice::m_pServer->handleGAPEvent(event, param);
+	}
+
+	if(m_bleAdvertising != nullptr && event != ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT) {
 		BLEDevice::getAdvertising()->handleGAPEvent(event, param);
 	}
 

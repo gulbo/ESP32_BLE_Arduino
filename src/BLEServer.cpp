@@ -17,16 +17,10 @@
 #include <string.h>
 #include <string>
 #include <unordered_set>
-#if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
-#include "esp32-hal-log.h"
-#define LOG_TAG ""
-#else
-#include "esp_log.h"
-static const char* LOG_TAG = "BLEServer";
-#endif
+#include "logger.h"
+#define LOG_TAG "BLEServer"
 
-
-
+static Logger& logger = Logger::instance();
 
 /**
  * @brief Construct a %BLE Server
@@ -73,13 +67,13 @@ BLEService* BLEServer::createService(const char* uuid) {
  * @return A reference to the new service object.
  */
 BLEService* BLEServer::createService(BLEUUID uuid, uint32_t numHandles, uint8_t inst_id) {
-	ESP_LOGD(LOG_TAG, ">> createService - %s", uuid.toString().c_str());
+	logger.debug(LOG_TAG, String(">> createService - ") + uuid.toString().c_str());
 	m_semaphoreCreateEvt.take("createService");
 
 	// Check that a service with the supplied UUID does not already exist.
 	if (m_serviceMap.getByUUID(uuid) != nullptr) {
-		ESP_LOGW(LOG_TAG, "<< Attempt to create a new service with uuid %s but a service with that UUID already exists.",
-			uuid.toString().c_str());
+		logger.warning(LOG_TAG, String("<< Attempt to create a new service with uuid ") + uuid.toString().c_str() +
+		                               "but a service with that UUID already exists.");
 	}
 
 	BLEService* pService = new BLEService(uuid, numHandles);
@@ -89,7 +83,7 @@ BLEService* BLEServer::createService(BLEUUID uuid, uint32_t numHandles, uint8_t 
 
 	m_semaphoreCreateEvt.wait("createService");
 
-	ESP_LOGD(LOG_TAG, "<< createService");
+	logger.debug(LOG_TAG, "<< createService");
 	return pService;
 } // createService
 
@@ -149,7 +143,7 @@ uint16_t BLEServer::getGattsIf() {
  *
  */
 void BLEServer::handleGATTServerEvent(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t* param) {
-	ESP_LOGD(LOG_TAG, ">> handleGATTServerEvent: %s",
+	logger.debug(LOG_TAG, String(">> handleGATTServerEvent: ") +
 		BLEUtils::gattServerEventTypeToString(event).c_str());
 
 	switch(event) {
@@ -176,6 +170,7 @@ void BLEServer::handleGATTServerEvent(esp_gatts_cb_event_t event, esp_gatt_if_t 
 		case ESP_GATTS_CONNECT_EVT: {
 			m_connId = param->connect.conn_id;
 			addPeerDevice((void*)this, false, m_connId);
+			memcpy(&m_client_addr, param->connect.remote_bda, 6);
 			if (m_pServerCallbacks != nullptr) {
 				m_pServerCallbacks->onConnect(this);
 				m_pServerCallbacks->onConnect(this, param);			
@@ -277,7 +272,7 @@ void BLEServer::handleGATTServerEvent(esp_gatts_cb_event_t event, esp_gatt_if_t 
 	// Invoke the handler for every Service we have.
 	m_serviceMap.handleGATTServerEvent(event, gatts_if, param);
 
-	ESP_LOGD(LOG_TAG, "<< handleGATTServerEvent");
+	logger.debug(LOG_TAG, "<< handleGATTServerEvent");
 } // handleGATTServerEvent
 
 
@@ -287,11 +282,11 @@ void BLEServer::handleGATTServerEvent(esp_gatts_cb_event_t event, esp_gatt_if_t 
  * @return N/A
  */
 void BLEServer::registerApp(uint16_t m_appId) {
-	ESP_LOGD(LOG_TAG, ">> registerApp - %d", m_appId);
+	logger.debug(LOG_TAG, ">> registerApp - " + String(m_appId));
 	m_semaphoreRegisterAppEvt.take("registerApp"); // Take the mutex, will be released by ESP_GATTS_REG_EVT event.
 	::esp_ble_gatts_app_register(m_appId);
 	m_semaphoreRegisterAppEvt.wait("registerApp");
-	ESP_LOGD(LOG_TAG, "<< registerApp");
+	logger.debug(LOG_TAG, "<< registerApp");
 } // registerApp
 
 
@@ -324,9 +319,9 @@ void BLEServer::removeService(BLEService* service) {
  * retrieving the advertising object and invoking start upon it.
  */
 void BLEServer::startAdvertising() {
-	ESP_LOGD(LOG_TAG, ">> startAdvertising");
+	logger.debug(LOG_TAG, ">> startAdvertising");
 	BLEDevice::startAdvertising();
-	ESP_LOGD(LOG_TAG, "<< startAdvertising");
+	logger.debug(LOG_TAG, "<< startAdvertising");
 } // startAdvertising
 
 /**
@@ -334,6 +329,7 @@ void BLEServer::startAdvertising() {
  * Probably can be used in ANCS for iPhone
  */
 bool BLEServer::connect(BLEAddress address) {
+	logger.debug(LOG_TAG,">> connect()");
 	esp_bd_addr_t addr;
 	memcpy(&addr, address.getNative(), 6);
 	// Perform the open connection request against the target BLE Server.
@@ -341,37 +337,37 @@ bool BLEServer::connect(BLEAddress address) {
 	esp_err_t errRc = ::esp_ble_gatts_open(
 		getGattsIf(),
 		addr, // address
-		1                              // direct connection
+		1     // direct connection
 	);
 	if (errRc != ESP_OK) {
-		ESP_LOGE(LOG_TAG, "esp_ble_gattc_open: rc=%d %s", errRc, GeneralUtils::errorToString(errRc));
+		logger.error(LOG_TAG, String("esp_ble_gattc_open: rc=") + String(errRc) + " " + GeneralUtils::errorToString(errRc));
 		return false;
 	}
 
 	uint32_t rc = m_semaphoreOpenEvt.wait("connect");   // Wait for the connection to complete.
-	ESP_LOGD(LOG_TAG, "<< connect(), rc=%d", rc==ESP_GATT_OK);
+	logger.debug(LOG_TAG, String("<< connect(), rc=") + (rc==ESP_GATT_OK));
 	return rc == ESP_GATT_OK;
 } // connect
 
 
 
 void BLEServerCallbacks::onConnect(BLEServer* pServer) {
-	ESP_LOGD("BLEServerCallbacks", ">> onConnect(): Default");
-	ESP_LOGD("BLEServerCallbacks", "Device: %s", BLEDevice::toString().c_str());
-	ESP_LOGD("BLEServerCallbacks", "<< onConnect()");
+	logger.debug("BLEServerCallbacks", ">> onConnect(): Default");
+	logger.debug("BLEServerCallbacks", String("Device: ") + BLEDevice::toString().c_str());
+	logger.debug("BLEServerCallbacks", "<< onConnect()");
 } // onConnect
 
 void BLEServerCallbacks::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t* param) {
-	ESP_LOGD("BLEServerCallbacks", ">> onConnect(): Default");
-	ESP_LOGD("BLEServerCallbacks", "Device: %s", BLEDevice::toString().c_str());
-	ESP_LOGD("BLEServerCallbacks", "<< onConnect()");
+	logger.debug("BLEServerCallbacks", ">> onConnect(): Default");
+	logger.debug("BLEServerCallbacks", String("Device: ") + BLEDevice::toString().c_str());
+	logger.debug("BLEServerCallbacks", "<< onConnect()");
 } // onConnect
 
 
 void BLEServerCallbacks::onDisconnect(BLEServer* pServer) {
-	ESP_LOGD("BLEServerCallbacks", ">> onDisconnect(): Default");
-	ESP_LOGD("BLEServerCallbacks", "Device: %s", BLEDevice::toString().c_str());
-	ESP_LOGD("BLEServerCallbacks", "<< onDisconnect()");
+	logger.debug("BLEServerCallbacks", ">> onDisconnect(): Default");
+	logger.debug("BLEServerCallbacks", String("Device: ") + BLEDevice::toString().c_str());
+	logger.debug("BLEServerCallbacks", "<< onDisconnect()");
 } // onDisconnect
 
 /* multi connect support */
@@ -420,5 +416,57 @@ void BLEServer::updateConnParams(esp_bd_addr_t remote_bda, uint16_t minInterval,
 	conn_params.min_int = minInterval;    // min_int = 0x10*1.25ms = 20ms
 	conn_params.timeout = timeout;    // timeout = 400*10ms = 4000ms
 	esp_ble_gap_update_conn_params(&conn_params); 
+}
+
+BLEAddress BLEServer::getPeerAddress(){
+	return m_client_addr;
+}
+
+int BLEServer::getRssi(){
+	logger.debug(LOG_TAG, ">> getRssi()");
+
+	if (m_connectedCount != 1) {
+		logger.debug(LOG_TAG, String("<< getRssi(): error, ") + m_connectedCount + " devices connected");
+		return 0;
+	}
+	
+	// take the only device connected
+	const std::map<uint16_t, conn_status_t>::iterator it = std::begin(m_connectedServersMap);
+
+
+	// We make the API call to read the RSSI value which is an asynchronous operation.  We expect to receive
+	// an ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT to indicate completion.
+	//
+	m_semaphoreRssiCmplEvt.take("getRssi");
+	esp_err_t rc = ::esp_ble_gap_read_rssi(*(getPeerAddress().getNative()));
+	//esp_err_t rc = ::esp_ble_gap_read_rssi(*(BLEAddress(std::string("80:5a:04:14:74:d7")).getNative()));
+	if (rc != ESP_OK) {
+		logger.error(LOG_TAG, String("<< getRssi: esp_ble_gap_read_rssi: rc=") + rc + " " + GeneralUtils::errorToString(rc));
+		return 0;
+	}
+	int rssiValue = m_semaphoreRssiCmplEvt.wait("getRssi");
+	logger.debug(LOG_TAG, String("<< getRssi(): ") + rssiValue);
+	return rssiValue;
+	}
+
+	void BLEServer::handleGAPEvent(esp_gap_ble_cb_event_t  event, esp_ble_gap_cb_param_t* param){
+		logger.debug(LOG_TAG, "handling GAP event!");
+		switch (event) {
+			//
+			// ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT
+			//
+			// read_rssi_cmpl
+			// - esp_bt_status_t status
+			// - int8_t rssi
+			// - esp_bd_addr_t remote_addr
+			//
+			case ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT: {
+				m_semaphoreRssiCmplEvt.give((uint32_t) param->read_rssi_cmpl.rssi);
+				break;
+			} // ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT
+
+			default:
+				break;
+		}
 }
 #endif // CONFIG_BT_ENABLED
