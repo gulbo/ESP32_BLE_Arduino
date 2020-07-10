@@ -60,7 +60,7 @@ gatts_event_handler BLEDevice::m_customGattsHandler = nullptr;
 	abort();
 #endif  // CONFIG_GATTC_ENABLE
 	m_pClient = new BLEClient();
-	logger.debug(LOG_TAG,("<< createClient");
+	logger.debug(LOG_TAG, "<< createClient");
 	return m_pClient;
 } // createClient
 
